@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
-import '../styles/global.css';
 
 export default function Send() {
   const [deviceId, setDeviceId] = useState('');
