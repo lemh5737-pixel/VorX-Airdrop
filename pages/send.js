@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
+// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Send() {
   const [deviceId, setDeviceId] = useState('');
@@ -9,8 +10,7 @@ export default function Send() {
   const [receiverName, setReceiverName] = useState('');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  // State uploadProgress dihapus karena tidak lagi digunakan dengan fetch
-  const [fileUrl, setFileUrl] = useState('');
+  const [uploadResults, setUploadResults] = useState([]); // State untuk menyimpan semua hasil upload
   const [transferStatus, setTransferStatus] = useState('');
   const router = useRouter();
 
@@ -54,24 +54,23 @@ export default function Send() {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setFile(selectedFile);
-      setFileUrl('');
+      setUploadResults([]); // Reset hasil upload saat file baru dipilih
       setTransferStatus('');
     }
   };
 
-  // FUNGSI UPLOAD YANG SUDAH DIPERBAIKI
+  // FUNGSI UPLOAD YANG SUDAH DIPERBAIKI UNTUK MULTI-UPLOADER
   const handleUpload = async () => {
     if (!file) return;
     
     setUploading(true);
+    setUploadResults([]); // Reset hasil
     
     try {
       const formData = new FormData();
-      formData.append('fileToUpload', file);
-      formData.append('reqtype', 'fileupload');
+      formData.append('file', file);
 
-      // Kirim file ke API route kita sendiri
-      const response = await fetch('/api/upload-catbox', {
+      const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
@@ -81,15 +80,17 @@ export default function Send() {
         throw new Error(errorData.error || 'Gagal mengunggah file');
       }
 
-      const result = await response.json();
+      const data = await response.json();
+      setUploadResults(data.results);
 
-      if (result.success || result.fileurl) {
-        const catboxURL = result.fileurl;
-        setFileUrl(catboxURL);
-        sendTransferRequest(catboxURL);
+      // Cari upload yang pertama kali berhasil untuk dikirim
+      const firstSuccess = data.results.find(r => r.status === 'success');
+      if (firstSuccess) {
+        sendTransferRequest(firstSuccess.url);
       } else {
-        showNotification('Gagal mengunggah file', 'error');
+        showNotification('Semua layanan upload gagal. Silakan coba lagi.', 'error');
       }
+
     } catch (error) {
       console.error('Error uploading file:', error);
       showNotification(error.message || 'Terjadi kesalahan saat mengunggah', 'error');
@@ -160,15 +161,6 @@ export default function Send() {
             </div>
           )}
           
-          {/* Progress Bar dihapus */}
-          
-          {fileUrl && !uploading && (
-            <div className="transfer-status">
-              <p>File berhasil diunggah!</p>
-              <p>Status transfer: {transferStatus === 'accepted' ? 'Diterima' : 'Menunggu respons...'}</p>
-            </div>
-          )}
-          
           <button
             className="btn"
             onClick={handleUpload}
@@ -176,6 +168,32 @@ export default function Send() {
           >
             {uploading ? 'Mengunggah...' : (transferStatus === 'accepted' ? 'File Diterima' : 'Kirim File')}
           </button>
+
+          {/* Tampilkan semua hasil upload */}
+          {uploadResults.length > 0 && (
+            <div className="upload-results" style={{ marginTop: '20px' }}>
+              <h4>Hasil Upload:</h4>
+              <ul style={{ listStyle: 'none', padding: 0 }}>
+                {uploadResults.map((result, index) => (
+                  <li key={index} style={{ marginBottom: '10px' }}>
+                    {result.status === 'success' ? (
+                      <span>
+                        ✅ <strong>{result.service}:</strong>{' '}
+                        <a href={result.url} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-all' }}>
+                          {result.url}
+                        </a>
+                      </span>
+                    ) : (
+                      <span>❌ <strong>{result.service}:</strong> Gagal</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {transferStatus === 'accepted' && (
+                 <p style={{color: 'var(--secondary-color)'}}>File yang dikirim menggunakan link dari salah satu layanan di atas.</p>
+              )}
+            </div>
+          )}
         </div>
       </main>
 
