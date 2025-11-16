@@ -1,5 +1,5 @@
 // /pages/api/go-offline.js
-import { database, ref, update } from '../../../lib/firebase';
+import { database, ref, update } from '../../lib/firebase';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
