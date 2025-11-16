@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "firebase": "^10.12.2",
+    "multiparty": "^4.2.3",
     "next": "14.2.5",
+    "node-fetch": "^3.3.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "uuid": "^9.0.1"
