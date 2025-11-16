@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, onValue, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
+// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Receive() {
   const [deviceId, setDeviceId] = useState('');
@@ -15,14 +16,12 @@ export default function Receive() {
     const id = generateDeviceId();
     setDeviceId(id);
     
-    // Dengarkan permintaan transfer
     const transferRef = ref(database, `transfers/${id}`);
     onValue(transferRef, (snapshot) => {
       if (snapshot.exists()) {
         const transferData = snapshot.val();
         
         if (transferData.status === 'pending') {
-          // Dapatkan nama pengirim
           const senderRef = ref(database, `users/${transferData.from}`);
           onValue(senderRef, (senderSnapshot) => {
             if (senderSnapshot.exists()) {
@@ -48,7 +47,6 @@ export default function Receive() {
   const handleAccept = () => {
     if (!transferRequest) return;
     
-    // Update status transfer
     update(ref(database, `transfers/${deviceId}`), {
       status: 'accepted'
     });
@@ -60,24 +58,33 @@ export default function Receive() {
   const handleReject = () => {
     if (!transferRequest) return;
     
-    // Hapus transfer request
     remove(ref(database, `transfers/${deviceId}`));
     
     setShowModal(false);
     setTransferRequest(null);
   };
 
+  // *** FUNGSI DOWNLOAD YANG SUDAH DIPERBAIKI ***
   const handleDownload = () => {
     if (!transferRequest) return;
     
-    // Buka URL di tab baru
-    window.open(transferRequest.url, '_blank');
+    // Buat elemen <a> sementara untuk memicu download
+    const link = document.createElement('a');
+    link.href = transferRequest.url;
+    link.target = '_blank'; // Buka di tab baru jika browser tidak bisa mendownload langsung
+    link.download = transferRequest.filename || 'download'; // Gunakan nama file asli
+    
+    // Tambahkan ke DOM, klik, lalu hapus
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showNotification('Download dimulai...');
   };
 
   const handleDone = async () => {
     if (!transferRequest) return;
     
-    // Hapus transfer request
     await remove(ref(database, `transfers/${deviceId}`));
     
     setShowPreview(false);
@@ -86,6 +93,22 @@ export default function Receive() {
 
   const handleBack = () => {
     router.push('/');
+  };
+
+  const showNotification = (message, type = 'success') => {
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.textContent = message;
+    
+    if (type === 'error') {
+      notification.style.backgroundColor = '#ea4335';
+    }
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      notification.remove();
+    }, 3000);
   };
 
   const isImage = (url) => {
@@ -162,4 +185,4 @@ export default function Receive() {
       </footer>
     </div>
   );
-      }
+           }
