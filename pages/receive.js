@@ -2,208 +2,150 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, onValue, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
-// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Receive() {
   const [deviceId, setDeviceId] = useState('');
-  const [transferRequest, setTransferRequest] = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [senderName, setSenderName] = useState('');
+  const [incomingTransfers, setIncomingTransfers] = useState([]); // State untuk daftar transfer
+  const [senders, setSenders] = useState({}); // State untuk cache nama pengirim
   const router = useRouter();
 
   useEffect(() => {
     const id = generateDeviceId();
     setDeviceId(id);
     
-    const transferRef = ref(database, `transfers/${id}`);
-    onValue(transferRef, (snapshot) => {
+    // *** PERUBAHAN: Dengarkan seluruh node /transfers/{deviceId} ***
+    const transfersRef = ref(database, `transfers/${id}`);
+    const unsubscribe = onValue(transfersRef, (snapshot) => {
       if (snapshot.exists()) {
-        const transferData = snapshot.val();
-        
-        if (transferData.status === 'pending') {
-          const senderRef = ref(database, `users/${transferData.from}`);
-          onValue(senderRef, (senderSnapshot) => {
-            if (senderSnapshot.exists()) {
-              setSenderName(senderSnapshot.val().username);
-            }
-          });
-          
-          setTransferRequest(transferData);
-          setShowModal(true);
-        } else if (transferData.status === 'accepted') {
-          setTransferRequest(transferData);
-          setShowModal(false);
-          setShowPreview(true);
-        }
+        const transfersData = snapshot.val();
+        const transferList = [];
+        const senderIds = new Set();
+
+        // Ubah data objek menjadi array
+        Object.keys(transfersData).forEach(key => {
+          const transfer = transfersData[key];
+          transferList.push({ key, ...transfer });
+          senderIds.add(transfer.from);
+        });
+
+        // Urutkan berdasarkan timestamp (terbaru di atas)
+        transferList.sort((a, b) => b.timestamp - a.timestamp);
+        setIncomingTransfers(transferList);
+
+        // Fetch nama pengirim yang belum ada di cache
+        senderIds.forEach(senderId => {
+          if (!senders[senderId]) {
+            const senderRef = ref(database, `users/${senderId}`);
+            onValue(senderRef, (senderSnapshot) => {
+              if (senderSnapshot.exists()) {
+                setSenders(prev => ({ ...prev, [senderId]: senderSnapshot.val().username }));
+              }
+            }, { onlyOnce: true });
+          }
+        });
       } else {
-        setTransferRequest(null);
-        setShowModal(false);
-        setShowPreview(false);
+        setIncomingTransfers([]);
       }
     });
-  }, []);
 
-  const handleAccept = () => {
-    if (!transferRequest) return;
-    
-    update(ref(database, `transfers/${deviceId}`), {
+    return () => unsubscribe();
+  }, [deviceId, senders]);
+
+  const handleAccept = (transferKey) => {
+    update(ref(database, `transfers/${deviceId}/${transferKey}`), {
       status: 'accepted'
     });
-    
-    setShowModal(false);
-    setShowPreview(true);
   };
 
-  const handleReject = () => {
-    if (!transferRequest) return;
-    
-    remove(ref(database, `transfers/${deviceId}`));
-    
-    setShowModal(false);
-    setTransferRequest(null);
+  const handleReject = async (transferKey) => {
+    await remove(ref(database, `transfers/${deviceId}/${transferKey}`));
   };
 
-  // *** FUNGSI DOWNLOAD YANG MENGGUNAKAN API PROXY ***
-  const handleDownload = async () => {
-    if (!transferRequest || !transferRequest.url) return;
-    
+  const handleDownload = async (transfer) => {
     try {
       showNotification('Memulai download...');
-
-      // Panggil API proxy kita dengan URL file dan nama file
-      const response = await fetch(`/api/download?url=${encodeURIComponent(transferRequest.url)}&filename=${encodeURIComponent(transferRequest.filename)}`);
-
-      if (!response.ok) {
-        throw new Error('Gagal memulai download dari server.');
-      }
-
-      // Konversi respons ke Blob
+      const response = await fetch(`/api/download?url=${encodeURIComponent(transfer.url)}&filename=${encodeURIComponent(transfer.filename)}`);
+      if (!response.ok) throw new Error('Gagal memulai download dari server.');
       const blob = await response.blob();
-
-      // Buat URL sementara untuk Blob
       const downloadUrl = window.URL.createObjectURL(blob);
-
-      // Buat elemen <a> untuk trigger download
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = transferRequest.filename || 'download';
+      link.download = transfer.filename || 'download';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-      // Hapus URL sementara dari memory
       window.URL.revokeObjectURL(downloadUrl);
-
     } catch (error) {
       console.error('Error during download:', error);
       showNotification(error.message || 'Terjadi kesalahan saat mendownload.', 'error');
     }
   };
 
-  const handleDone = async () => {
-    if (!transferRequest) return;
-    
-    await remove(ref(database, `transfers/${deviceId}`));
-    
-    setShowPreview(false);
-    setTransferRequest(null);
-  };
-
-  const handleBack = () => {
-    router.push('/');
+  const handleDone = async (transferKey) => {
+    await remove(ref(database, `transfers/${deviceId}/${transferKey}`));
   };
 
   const showNotification = (message, type = 'success') => {
     const notification = document.createElement('div');
     notification.className = 'notification';
     notification.textContent = message;
-    
-    if (type === 'error') {
-      notification.style.backgroundColor = '#ea4335';
-    }
-    
+    if (type === 'error') notification.style.backgroundColor = '#ea4335';
     document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      notification.remove();
-    }, 3000);
+    setTimeout(() => notification.remove(), 3000);
   };
   
-  // Cek apakah file adalah gambar berdasarkan mimetype (jika ada) atau ekstensi
-  const isImage = (url) => {
-    if (!url) return false;
-    return /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
-  };
+  const isImage = (url) => /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
 
   return (
     <div className="container">
       <header>
         <div className="header-content">
           <div className="logo">VorX-Airdrop</div>
-          <button className="btn" onClick={handleBack}>Kembali</button>
+          <button className="btn" onClick={() => router.push('/')}>Kembali</button>
         </div>
       </header>
 
       <main>
         <div className="card">
-          <h2 className="card-title">Penerimaan File</h2>
-          <p>Halaman ini akan menampilkan notifikasi jika ada file yang dikirimkan kepada Anda.</p>
-          
-          {!transferRequest && (
-            <p>Menunggu file masuk...</p>
+          <h2 className="card-title">Daftar File Masuk</h2>
+          {incomingTransfers.length > 0 ? (
+            <div className="transfer-list">
+              {incomingTransfers.map(transfer => (
+                <div key={transfer.key} className="transfer-item" style={{ border: '1px solid var(--border-color)', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
+                  <p><strong>Dari:</strong> {senders[transfer.from] || 'Memuat...'}</p>
+                  <p><strong>Nama File:</strong> {transfer.filename}</p>
+                  <p><strong>Ukuran:</strong> {(transfer.filesize / 1024 / 1024).toFixed(2)} MB</p>
+                  
+                  {isImage(transfer.url) && transfer.status === 'accepted' && (
+                    <img src={transfer.url} alt={transfer.filename} style={{ maxWidth: '200px', maxHeight: '150px', marginTop: '10px', borderRadius: '4px' }} />
+                  )}
+                  
+                  <div className="transfer-actions" style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                    {transfer.status === 'pending' && (
+                      <>
+                        <button className="btn btn-success" onClick={() => handleAccept(transfer.key)}>Terima</button>
+                        <button className="btn btn-danger" onClick={() => handleReject(transfer.key)}>Tolak</button>
+                      </>
+                    )}
+                    {transfer.status === 'accepted' && (
+                      <>
+                        <button className="btn" onClick={() => handleDownload(transfer)}>Download</button>
+                        <button className="btn btn-success" onClick={() => handleDone(transfer.key)}>Selesai</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>Tidak ada file masuk. Menunggu pengiriman...</p>
           )}
         </div>
       </main>
-
-      {/* Modal untuk konfirmasi penerimaan */}
-      {showModal && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3 className="modal-title">Permintaan Transfer File</h3>
-            <div className="modal-body">
-              <p>{senderName} ingin mengirim file kepada Anda:</p>
-              <p>Nama File: {transferRequest?.filename}</p>
-              <p>Ukuran: {(transferRequest?.filesize / 1024 / 1024).toFixed(2)} MB</p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-danger" onClick={handleReject}>Tolak</button>
-              <button className="btn btn-success" onClick={handleAccept}>Terima</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Preview file */}
-      {showPreview && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3 className="modal-title">Preview File</h3>
-            <div className="modal-body">
-              <p>Dari: {senderName}</p>
-              <p>Nama File: {transferRequest?.filename}</p>
-              
-              {isImage(transferRequest?.url) ? (
-                <div className="file-preview">
-                  <img src={transferRequest?.url} alt={transferRequest?.filename} />
-                </div>
-              ) : (
-                <div className="file-info">
-                  <p>File tidak dapat dipreview. Silakan download untuk melihat konten.</p>
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn" onClick={handleDownload}>Download</button>
-              <button className="btn btn-success" onClick={handleDone}>Selesai</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <footer className="footer">
         <p>© 2023 VorX-Airdrop | Credit by VorXTeam</p>
       </footer>
     </div>
   );
-    }
+}
