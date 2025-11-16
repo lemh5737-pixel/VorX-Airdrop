@@ -64,22 +64,41 @@ export default function Receive() {
     setTransferRequest(null);
   };
 
-  // *** FUNGSI DOWNLOAD YANG SUDAH DIPERBAIKI ***
-  const handleDownload = () => {
-    if (!transferRequest) return;
+  // *** FUNGSI DOWNLOAD YANG MENGGUNAKAN API PROXY ***
+  const handleDownload = async () => {
+    if (!transferRequest || !transferRequest.url) return;
     
-    // Buat elemen <a> sementara untuk memicu download
-    const link = document.createElement('a');
-    link.href = transferRequest.url;
-    link.target = '_blank'; // Buka di tab baru jika browser tidak bisa mendownload langsung
-    link.download = transferRequest.filename || 'download'; // Gunakan nama file asli
-    
-    // Tambahkan ke DOM, klik, lalu hapus
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    showNotification('Download dimulai...');
+    try {
+      showNotification('Memulai download...');
+
+      // Panggil API proxy kita dengan URL file dan nama file
+      const response = await fetch(`/api/download?url=${encodeURIComponent(transferRequest.url)}&filename=${encodeURIComponent(transferRequest.filename)}`);
+
+      if (!response.ok) {
+        throw new Error('Gagal memulai download dari server.');
+      }
+
+      // Konversi respons ke Blob
+      const blob = await response.blob();
+
+      // Buat URL sementara untuk Blob
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      // Buat elemen <a> untuk trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = transferRequest.filename || 'download';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Hapus URL sementara dari memory
+      window.URL.revokeObjectURL(downloadUrl);
+
+    } catch (error) {
+      console.error('Error during download:', error);
+      showNotification(error.message || 'Terjadi kesalahan saat mendownload.', 'error');
+    }
   };
 
   const handleDone = async () => {
@@ -110,8 +129,10 @@ export default function Receive() {
       notification.remove();
     }, 3000);
   };
-
+  
+  // Cek apakah file adalah gambar berdasarkan mimetype (jika ada) atau ekstensi
   const isImage = (url) => {
+    if (!url) return false;
     return /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
   };
 
@@ -185,4 +206,4 @@ export default function Receive() {
       </footer>
     </div>
   );
-           }
+    }
