@@ -10,7 +10,6 @@ export default function Send() {
   const [receiverName, setReceiverName] = useState('');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadResults, setUploadResults] = useState([]);
   const [transferStatus, setTransferStatus] = useState('');
   const router = useRouter();
 
@@ -50,11 +49,18 @@ export default function Send() {
     });
   }, [receiverId, deviceId, receiverName]);
 
+  // *** FUNGSI YANG SUDAH DIPERBAIKI UNTUK HANYA GAMBAR ***
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
+      // Validasi: Pastikan yang dipilih adalah file gambar
+      if (!selectedFile.type.startsWith('image/')) {
+        showNotification('Hanya file gambar (image) yang didukung.', 'error');
+        e.target.value = ''; // Kosongkan input file
+        return; // Hentikan proses lebih lanjut
+      }
+
       setFile(selectedFile);
-      setUploadResults([]);
       setTransferStatus('');
     }
   };
@@ -63,12 +69,12 @@ export default function Send() {
     if (!file) return;
     
     setUploading(true);
-    setUploadResults([]);
     
     try {
       const formData = new FormData();
       formData.append('file', file);
 
+      // Gunakan API upload multi-uploader
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -80,9 +86,8 @@ export default function Send() {
       }
 
       const data = await response.json();
-      setUploadResults(data.results);
-
       const firstSuccess = data.results.find(r => r.status === 'success');
+
       if (firstSuccess) {
         sendTransferRequest(firstSuccess.url);
       } else {
@@ -140,15 +145,20 @@ export default function Send() {
 
       <main>
         <div className="card">
-          <h2 className="card-title">Kirim File ke {receiverName || '...'}</h2>
+          <h2 className="card-title">Kirim Gambar ke {receiverName || '...'}</h2>
           
           <div className="form-group">
-            <label htmlFor="file">Pilih File</label>
+            <label htmlFor="file">Pilih Gambar</label>
+            <p style={{ fontSize: '12px', color: '#5f6368', margin: '5px 0' }}>
+              Hanya mendukung file dengan ekstensi .jpg, .png, .gif, .webp, dll.
+            </p>
             <input
               type="file"
               id="file"
               onChange={handleFileChange}
               disabled={uploading}
+              // *** TAMBAHKAN ATRIBUT INI UNTUK MEMBATASI PILIHAN FILE DI DIALOG ***
+              accept="image/*"
             />
           </div>
           
@@ -164,14 +174,13 @@ export default function Send() {
             onClick={handleUpload}
             disabled={!file || uploading || transferStatus === 'accepted'}
           >
-            {uploading ? 'Mengunggah...' : (transferStatus === 'accepted' ? 'File Diterima' : 'Kirim File')}
+            {uploading ? 'Mengunggah...' : (transferStatus === 'accepted' ? 'Gambar Diterima' : 'Kirim Gambar')}
           </button>
 
-          {/* *** TAMPILAN INFORMASI YANG SUDAH DIEDIT *** */}
-          {uploadResults.length > 0 && (
+          {transferStatus && (
             <div className="upload-results" style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e8f0fe', borderRadius: '8px', borderLeft: '4px solid var(--primary-color)' }}>
               <h4 style={{ marginTop: 0 }}>Informasi Pengiriman</h4>
-              <p><strong>Nama File/Media:</strong> {file.name}</p>
+              <p><strong>Nama File/Media:</strong> {file?.name}</p>
               <p><strong>Penerima:</strong> {receiverName}</p>
               <p><strong>Status:</strong> {transferStatus === 'accepted' ? '✅ Telah diterima' : '⏳ Menunggu konfirmasi penerima...'}</p>
             </div>
