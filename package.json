@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "firebase": "^10.12.2",
+    "form-data": "^4.0.0",
     "multiparty": "^4.2.3",
     "next": "14.2.5",
     "node-fetch": "^3.3.2",
