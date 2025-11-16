@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { database, ref, set, onValue, push } from '../lib/firebase'; // Tambahkan 'push'
+import { database, ref, set, onValue, push } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
 
 export default function Send() {
@@ -41,10 +41,12 @@ export default function Send() {
     }
   };
 
+  // *** FUNGSI UPLOAD DENGAN SISTEM DELAY ***
   const handleUpload = async () => {
     if (!file) return;
     
     setUploading(true);
+    showNotification('Sedang mengunggah gambar...');
     
     try {
       const formData = new FormData();
@@ -64,6 +66,9 @@ export default function Send() {
       const firstSuccess = data.results.find(r => r.status === 'success');
 
       if (firstSuccess) {
+        showNotification('Upload berhasil. Mengirim permintaan...');
+        // *** DELAY 1.5 DETIK UNTUK ANIMASI/PROSES ***
+        await new Promise(resolve => setTimeout(resolve, 1500));
         sendTransferRequest(firstSuccess.url);
       } else {
         showNotification('Semua layanan upload gagal. Silakan coba lagi.', 'error');
@@ -78,7 +83,6 @@ export default function Send() {
   };
 
   const sendTransferRequest = (url) => {
-    // *** PERUBAHAN: Gunakan 'push' untuk membuat node transfer baru yang unik ***
     const transfersRef = ref(database, `transfers/${receiverId}`);
     const newTransferRef = push(transfersRef);
     
@@ -88,13 +92,11 @@ export default function Send() {
       status: 'pending',
       filename: file.name,
       filesize: file.size,
-      timestamp: Date.now() // Tambahkan timestamp untuk sorting
+      timestamp: Date.now()
     });
 
-    // Simpan key transfer untuk melacak statusnya
     const transferKey = newTransferRef.key;
     
-    // *** PERUBAHAN: Dengarkan perubahan status pada transfer spesifik ini ***
     const specificTransferRef = ref(database, `transfers/${receiverId}/${transferKey}`);
     onValue(specificTransferRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -104,13 +106,15 @@ export default function Send() {
           showNotification('Gambar diterima oleh ' + receiverName);
         }
       } else {
-        // Transfer dihapus oleh penerima
         setTransferStatus('done');
         showNotification('Sesi transfer telah selesai.');
       }
     });
     
-    showNotification('Permintaan pengiriman gambar telah dikirim');
+    // *** DELAY 1 DETIK SEBELUM NOTIFIKASI AKHIR ***
+    setTimeout(() => {
+      showNotification('Permintaan pengiriman gambar telah dikirim!');
+    }, 1000);
   };
 
   const showNotification = (message, type = 'success') => {
