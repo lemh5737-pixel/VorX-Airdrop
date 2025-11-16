@@ -1,41 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react'; // *** useRef SUDAH DITAMBAHKAN DI SINI ***
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue, get, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
+// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Home() {
   const [deviceId, setDeviceId] = useState('');
   const [username, setUsername] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [isRegistered, setIsRegistered] = useState(false); // State kunci: apakah perangkat ini sudah terdaftar?
+  const [isRegistered, setIsRegistered] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [targetUserId, setTargetUserId] = useState('');
   const [searchStatus, setSearchStatus] = useState('');
-  const [isLoading, setIsLoading] = useState(true); // State untuk menampilkan loading saat cek status
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const intervalRef = useRef(null);
+  const intervalRef = useRef(null); // Ini adalah baris yang menyebabkan error
 
   useEffect(() => {
     const id = generateDeviceId();
     setDeviceId(id);
     
-    // Fungsi untuk mengecek status registrasi perangkat
     const checkRegistrationStatus = async () => {
       setIsLoading(true);
       const userRef = ref(database, `users/${id}`);
       const snapshot = await get(userRef);
 
       if (snapshot.exists()) {
-        // Perangkat sudah terdaftar, ambil data dan langsung login
         const userData = snapshot.val();
         setUsername(userData.username || `User-${id.substring(0, 5)}`);
         setIsRegistered(true);
-        // Jika status di database online, sinkronkan dengan state lokal
         if (userData.online) {
           setIsOnline(true);
         }
       } else {
-        // Perangkat belum terdaftar
         setIsRegistered(false);
         setIsOnline(false);
       }
@@ -45,7 +42,6 @@ export default function Home() {
     checkRegistrationStatus();
   }, []);
 
-  // useEffect untuk mengelola interval update status online
   useEffect(() => {
     if (isOnline) {
       intervalRef.current = setInterval(() => {
@@ -96,7 +92,7 @@ export default function Home() {
     if (username.trim()) {
       set(ref(database, `users/${deviceId}`), {
         username: username.trim(),
-        online: false, // Status awal adalah offline, user harus klik "Go Online"
+        online: false,
         lastSeen: Date.now()
       });
       setIsRegistered(true);
@@ -118,14 +114,10 @@ export default function Home() {
     });
   };
   
-  // *** FUNGSI BARU UNTUK MENGHAPUS PERANGKAT ***
   const handleUnregisterDevice = async () => {
     if (confirm('Apakah Anda yakin ingin menghapus data perangkat ini? Anda akan perlu mendaftar ulang.')) {
-      // Hapus data dari Firebase
       await remove(ref(database, `users/${deviceId}`));
-      // Hapus ID dari localStorage
       localStorage.removeItem('vorx-device-id');
-      // Reload halaman untuk mereset state
       window.location.reload();
     }
   };
@@ -180,7 +172,6 @@ export default function Home() {
     setTimeout(() => notification.remove(), 3000);
   };
 
-  // Tampilkan loading saat pengecekan status registrasi
   if (isLoading) {
     return (
       <div className="container">
@@ -292,4 +283,4 @@ export default function Home() {
       </footer>
     </div>
   );
-}
+          }
