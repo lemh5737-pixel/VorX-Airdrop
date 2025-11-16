@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue, get, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
-// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Home() {
   const [deviceId, setDeviceId] = useState('');
