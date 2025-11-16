@@ -1,51 +1,60 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue, get, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
+// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Home() {
   const [deviceId, setDeviceId] = useState('');
   const [username, setUsername] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [isOnline, setIsOnline] = useState(false); // State baru untuk tracking status online
+  const [isRegistered, setIsRegistered] = useState(false); // State kunci: apakah perangkat ini sudah terdaftar?
+  const [isOnline, setIsOnline] = useState(false);
   const [targetUserId, setTargetUserId] = useState('');
   const [searchStatus, setSearchStatus] = useState('');
+  const [isLoading, setIsLoading] = useState(true); // State untuk menampilkan loading saat cek status
   const router = useRouter();
-  const intervalRef = useRef(null); // Untuk menyimpan referensi interval
+  const intervalRef = useRef(null);
 
   useEffect(() => {
     const id = generateDeviceId();
     setDeviceId(id);
     
-    const userRef = ref(database, `users/${id}`);
-    onValue(userRef, (snapshot) => {
+    // Fungsi untuk mengecek status registrasi perangkat
+    const checkRegistrationStatus = async () => {
+      setIsLoading(true);
+      const userRef = ref(database, `users/${id}`);
+      const snapshot = await get(userRef);
+
       if (snapshot.exists()) {
+        // Perangkat sudah terdaftar, ambil data dan langsung login
         const userData = snapshot.val();
         setUsername(userData.username || `User-${id.substring(0, 5)}`);
         setIsRegistered(true);
-        // Jika di database statusnya online, sinkronkan dengan state lokal
+        // Jika status di database online, sinkronkan dengan state lokal
         if (userData.online) {
           setIsOnline(true);
         }
       } else {
+        // Perangkat belum terdaftar
         setIsRegistered(false);
         setIsOnline(false);
       }
-    });
+      setIsLoading(false);
+    };
+
+    checkRegistrationStatus();
   }, []);
 
-  // useEffect untuk mengelola interval update status
+  // useEffect untuk mengelola interval update status online
   useEffect(() => {
     if (isOnline) {
-      // Jika online, mulai interval untuk update lastSeen
       intervalRef.current = setInterval(() => {
         update(ref(database, `users/${deviceId}`), {
           lastSeen: Date.now()
         });
-      }, 30000); // Update setiap 30 detik
+      }, 30000);
 
-      // Fungsi cleanup akan dipanggil saat isOnline berubah menjadi false atau komponen unmount
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
@@ -60,12 +69,11 @@ export default function Home() {
       if (snapshot.exists()) {
         const users = [];
         const now = Date.now();
-        const OFFLINE_THRESHOLD = 60000; // 60 detik
+        const OFFLINE_THRESHOLD = 60000;
 
         snapshot.forEach((childSnapshot) => {
           const userData = childSnapshot.val();
           const userId = childSnapshot.key;
-
           const isActuallyOnline = userData.online && (now - userData.lastSeen < OFFLINE_THRESHOLD);
 
           if (isActuallyOnline && userId !== deviceId) {
@@ -81,16 +89,15 @@ export default function Home() {
       }
     });
 
-    return () => unsubscribe(); // Membersihkan listener saat komponen unmount
+    return () => unsubscribe();
   }, [deviceId]);
 
   const handleRegister = (e) => {
     e.preventDefault();
     if (username.trim()) {
-      // Saat registrasi, user belum online. Hanya simpan username.
       set(ref(database, `users/${deviceId}`), {
         username: username.trim(),
-        online: false, // Status awal adalah offline
+        online: false, // Status awal adalah offline, user harus klik "Go Online"
         lastSeen: Date.now()
       });
       setIsRegistered(true);
@@ -99,7 +106,6 @@ export default function Home() {
 
   const handleGoOnline = () => {
     setIsOnline(true);
-    // Update status di database menjadi online
     update(ref(database, `users/${deviceId}`), {
       online: true,
       lastSeen: Date.now()
@@ -108,21 +114,21 @@ export default function Home() {
 
   const handleGoOffline = () => {
     setIsOnline(false);
-    // Update status di database menjadi offline
     update(ref(database, `users/${deviceId}`), {
       online: false
     });
   };
-
-  const handleLogout = async () => {
-    // Hentikan interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+  
+  // *** FUNGSI BARU UNTUK MENGHAPUS PERANGKAT ***
+  const handleUnregisterDevice = async () => {
+    if (confirm('Apakah Anda yakin ingin menghapus data perangkat ini? Anda akan perlu mendaftar ulang.')) {
+      // Hapus data dari Firebase
+      await remove(ref(database, `users/${deviceId}`));
+      // Hapus ID dari localStorage
+      localStorage.removeItem('vorx-device-id');
+      // Reload halaman untuk mereset state
+      window.location.reload();
     }
-    // Hapus data user dari database (opsional, atau cukup tandai offline)
-    await remove(ref(database, `users/${deviceId}`));
-    setIsRegistered(false);
-    setIsOnline(false);
   };
 
   const handleSelectUser = (userId) => {
@@ -142,22 +148,18 @@ export default function Home() {
     try {
       const userRef = ref(database, `users/${targetUserId.trim()}`);
       const snapshot = await get(userRef);
+      const now = Date.now();
+      const OFFLINE_THRESHOLD = 60000;
+      const isActuallyOnline = snapshot.exists() && snapshot.val().online && (now - snapshot.val().lastSeen < OFFLINE_THRESHOLD);
 
-      if (snapshot.exists()) {
-        const userData = snapshot.val();
-        const now = Date.now();
-        const OFFLINE_THRESHOLD = 60000;
-        const isActuallyOnline = userData.online && (now - userData.lastSeen < OFFLINE_THRESHOLD);
-
-        if (isActuallyOnline) {
-          showNotification(`Pengguna ${userData.username} ditemukan!`, 'success');
-          router.push({
-            pathname: '/send',
-            query: { receiverId: targetUserId.trim() }
-          });
-        } else {
-          showNotification('Pengguna ditemukan tetapi sedang offline.', 'error');
-        }
+      if (isActuallyOnline) {
+        showNotification(`Pengguna ${snapshot.val().username} ditemukan!`, 'success');
+        router.push({
+          pathname: '/send',
+          query: { receiverId: targetUserId.trim() }
+        });
+      } else if (snapshot.exists()) {
+        showNotification('Pengguna ditemukan tetapi sedang offline.', 'error');
       } else {
         showNotification('Pengguna dengan ID tersebut tidak ditemukan.', 'error');
       }
@@ -174,17 +176,20 @@ export default function Home() {
     const notification = document.createElement('div');
     notification.className = 'notification';
     notification.textContent = message;
-    
-    if (type === 'error') {
-      notification.style.backgroundColor = '#ea4335';
-    }
-    
+    if (type === 'error') notification.style.backgroundColor = '#ea4335';
     document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      notification.remove();
-    }, 3000);
+    setTimeout(() => notification.remove(), 3000);
   };
+
+  // Tampilkan loading saat pengecekan status registrasi
+  if (isLoading) {
+    return (
+      <div className="container">
+        <header><div className="header-content"><div className="logo">VorX-Airdrop</div></div></header>
+        <main><div className="card"><h2 className="card-title">Memeriksa status perangkat...</h2></div></main>
+      </div>
+    );
+  }
 
   return (
     <div className="container">
@@ -201,7 +206,7 @@ export default function Home() {
                 ) : (
                   <button className="btn" onClick={handleGoOnline}>Go Online</button>
                 )}
-                <button className="btn" onClick={handleLogout}>Logout</button>
+                <button className="btn" onClick={handleUnregisterDevice} style={{backgroundColor: '#fbbc04', color: 'black'}}>Hapus Perangkat</button>
               </>
             ) : (
               <div className="device-id">ID: {deviceId.substring(0, 8)}...</div>
@@ -214,6 +219,7 @@ export default function Home() {
         {!isRegistered ? (
           <div className="card">
             <h2 className="card-title">Bergabung dengan VorX-Airdrop</h2>
+            <p>Perangkat ini belum terdaftar. Silakan daftar untuk melanjutkan.</p>
             <form onSubmit={handleRegister}>
               <div className="form-group">
                 <label htmlFor="username">Nama Pengguna</label>
@@ -226,31 +232,23 @@ export default function Home() {
                   required
                 />
               </div>
-              <button type="submit" className="btn">Bergabung</button>
+              <button type="submit" className="btn">Bergabung Sekali</button>
             </form>
           </div>
         ) : !isOnline ? (
-          // Tampilan saat user sudah daftar tapi belum online
           <div className="card">
             <h2 className="card-title">Anda Sedang Offline</h2>
             <p>Untuk mulai berbagi file atau melihat pengguna lain, silakan klik tombol "Go Online" di atas.</p>
           </div>
         ) : (
-          // Tampilan utama saat user online
           <>
             <div className="card">
               <h2 className="card-title">Pengguna Online ({onlineUsers.length})</h2>
               {onlineUsers.length > 0 ? (
                 <div className="user-list">
                   {onlineUsers.map((user) => (
-                    <div
-                      key={user.id}
-                      className="user-card"
-                      onClick={() => handleSelectUser(user.id)}
-                    >
-                      <div className="user-avatar">
-                        {user.username.charAt(0).toUpperCase()}
-                      </div>
+                    <div key={user.id} className="user-card" onClick={() => handleSelectUser(user.id)}>
+                      <div className="user-avatar">{user.username.charAt(0).toUpperCase()}</div>
                       <div className="user-details">
                         <div className="user-name">{user.username}</div>
                         <div className="user-status">Online</div>
@@ -284,12 +282,7 @@ export default function Home() {
             <div className="card">
               <h2 className="card-title">Penerimaan File</h2>
               <p>Periksa halaman penerimaan untuk melihat file yang dikirimkan kepada Anda.</p>
-              <button
-                className="btn"
-                onClick={() => router.push('/receive')}
-              >
-                Buka Halaman Penerimaan
-              </button>
+              <button className="btn" onClick={() => router.push('/receive')}>Buka Halaman Penerimaan</button>
             </div>
           </>
         )}
@@ -300,4 +293,4 @@ export default function Home() {
       </footer>
     </div>
   );
-    }
+}
