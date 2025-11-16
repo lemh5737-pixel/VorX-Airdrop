@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, onValue, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
-import '../styles/global.css';
 
 export default function Receive() {
   const [deviceId, setDeviceId] = useState('');
