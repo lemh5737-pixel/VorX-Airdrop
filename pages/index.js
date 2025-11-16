@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { database, ref, set, onValue, get, update } from '../lib/firebase';
+import { database, ref, set, onValue, get, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
 
 export default function Home() {
@@ -8,9 +8,11 @@ export default function Home() {
   const [username, setUsername] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [isRegistered, setIsRegistered] = useState(false);
-  const [targetUserId, setTargetUserId] = useState(''); // State untuk ID target
-  const [searchStatus, setSearchStatus] = useState(''); // State untuk status pencarian
+  const [isOnline, setIsOnline] = useState(false); // State baru untuk tracking status online
+  const [targetUserId, setTargetUserId] = useState('');
+  const [searchStatus, setSearchStatus] = useState('');
   const router = useRouter();
+  const intervalRef = useRef(null); // Untuk menyimpan referensi interval
 
   useEffect(() => {
     const id = generateDeviceId();
@@ -22,38 +24,39 @@ export default function Home() {
         const userData = snapshot.val();
         setUsername(userData.username || `User-${id.substring(0, 5)}`);
         setIsRegistered(true);
+        // Jika di database statusnya online, sinkronkan dengan state lokal
+        if (userData.online) {
+          setIsOnline(true);
+        }
       } else {
         setIsRegistered(false);
+        setIsOnline(false);
       }
     });
+  }, []);
 
-    // Fungsi untuk update status online dan lastSeen
-    const updateOnlineStatus = () => {
-      set(ref(database, `users/${id}`), {
-        username: username || `User-${id.substring(0, 5)}`,
-        online: true,
-        lastSeen: Date.now() // Simpan timestamp
-      });
-    };
+  // useEffect untuk mengelola interval update status
+  useEffect(() => {
+    if (isOnline) {
+      // Jika online, mulai interval untuk update lastSeen
+      intervalRef.current = setInterval(() => {
+        update(ref(database, `users/${deviceId}`), {
+          lastSeen: Date.now()
+        });
+      }, 30000); // Update setiap 30 detik
 
-    // Update status saat pertama kali load
-    updateOnlineStatus();
-
-    // Update status setiap 30 detik
-    const interval = setInterval(updateOnlineStatus, 30000);
-    
-    return () => {
-      clearInterval(interval);
-      // Tandai user offline saat komponen unmount
-      if (id) {
-        update(ref(database, `users/${id}`), { online: false });
-      }
-    };
-  }, [deviceId, username]);
+      // Fungsi cleanup akan dipanggil saat isOnline berubah menjadi false atau komponen unmount
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+        }
+      };
+    }
+  }, [isOnline, deviceId]);
 
   useEffect(() => {
     const usersRef = ref(database, 'users');
-    onValue(usersRef, (snapshot) => {
+    const unsubscribe = onValue(usersRef, (snapshot) => {
       if (snapshot.exists()) {
         const users = [];
         const now = Date.now();
@@ -63,7 +66,6 @@ export default function Home() {
           const userData = childSnapshot.val();
           const userId = childSnapshot.key;
 
-          // Anggap offline jika lastSeen sudah lebih lama dari threshold
           const isActuallyOnline = userData.online && (now - userData.lastSeen < OFFLINE_THRESHOLD);
 
           if (isActuallyOnline && userId !== deviceId) {
@@ -78,23 +80,49 @@ export default function Home() {
         setOnlineUsers([]);
       }
     });
+
+    return () => unsubscribe(); // Membersihkan listener saat komponen unmount
   }, [deviceId]);
 
   const handleRegister = (e) => {
     e.preventDefault();
     if (username.trim()) {
+      // Saat registrasi, user belum online. Hanya simpan username.
       set(ref(database, `users/${deviceId}`), {
         username: username.trim(),
-        online: true,
+        online: false, // Status awal adalah offline
         lastSeen: Date.now()
       });
       setIsRegistered(true);
     }
   };
 
-  const handleLogout = () => {
-    update(ref(database, `users/${deviceId}`), { online: false });
+  const handleGoOnline = () => {
+    setIsOnline(true);
+    // Update status di database menjadi online
+    update(ref(database, `users/${deviceId}`), {
+      online: true,
+      lastSeen: Date.now()
+    });
+  };
+
+  const handleGoOffline = () => {
+    setIsOnline(false);
+    // Update status di database menjadi offline
+    update(ref(database, `users/${deviceId}`), {
+      online: false
+    });
+  };
+
+  const handleLogout = async () => {
+    // Hentikan interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    // Hapus data user dari database (opsional, atau cukup tandai offline)
+    await remove(ref(database, `users/${deviceId}`));
     setIsRegistered(false);
+    setIsOnline(false);
   };
 
   const handleSelectUser = (userId) => {
@@ -104,7 +132,6 @@ export default function Home() {
     });
   };
 
-  // *** FUNGSI BARU UNTUK KIRIM VIA ID ***
   const handleSendById = async () => {
     if (!targetUserId.trim()) {
       showNotification('ID Pengguna tidak boleh kosong', 'error');
@@ -139,7 +166,7 @@ export default function Home() {
       showNotification('Terjadi kesalahan saat mencari pengguna.', 'error');
     } finally {
       setSearchStatus('');
-      setTargetUserId(''); // Kosongkan input setelah pencarian
+      setTargetUserId('');
     }
   };
 
@@ -169,6 +196,11 @@ export default function Home() {
               <>
                 <span>{username}</span>
                 <div className="device-id">ID: {deviceId.substring(0, 8)}...</div>
+                {isOnline ? (
+                  <button className="btn btn-danger" onClick={handleGoOffline}>Go Offline</button>
+                ) : (
+                  <button className="btn" onClick={handleGoOnline}>Go Online</button>
+                )}
                 <button className="btn" onClick={handleLogout}>Logout</button>
               </>
             ) : (
@@ -197,7 +229,14 @@ export default function Home() {
               <button type="submit" className="btn">Bergabung</button>
             </form>
           </div>
+        ) : !isOnline ? (
+          // Tampilan saat user sudah daftar tapi belum online
+          <div className="card">
+            <h2 className="card-title">Anda Sedang Offline</h2>
+            <p>Untuk mulai berbagi file atau melihat pengguna lain, silakan klik tombol "Go Online" di atas.</p>
+          </div>
         ) : (
+          // Tampilan utama saat user online
           <>
             <div className="card">
               <h2 className="card-title">Pengguna Online ({onlineUsers.length})</h2>
@@ -224,7 +263,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* *** FITUR BARU: KIRIM VIA ID *** */}
             <div className="card">
               <h2 className="card-title">Kirim via ID Pengguna</h2>
               <p>Jika Anda tahu ID Pengguna tujuan, masukkan di bawah ini.</p>
@@ -262,4 +300,4 @@ export default function Home() {
       </footer>
     </div>
   );
-}
+    }
