@@ -1,5 +1,5 @@
 // /pages/api/cleanup.js
-import { database, ref, get, remove } from '../../../lib/firebase';
+import { database, ref, get, remove } from '../../lib/firebase';
 
 // Kunci rahasia untuk mencegah akses tidak sah. GANTI dengan kunci yang unik!
 const CLEANUP_SECRET_KEY = 'vorx-cleanup-2023-secret-key';
