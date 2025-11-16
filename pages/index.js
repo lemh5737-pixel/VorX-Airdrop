@@ -1,8 +1,7 @@
-import { useEffect, useState, useRef } from 'react'; // *** useRef SUDAH DITAMBAHKAN DI SINI ***
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue, get, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
-// import '../styles/global.css'; // Pastikan ini ada di _app.js
 
 export default function Home() {
   const [deviceId, setDeviceId] = useState('');
@@ -14,7 +13,7 @@ export default function Home() {
   const [searchStatus, setSearchStatus] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const intervalRef = useRef(null); // Ini adalah baris yang menyebabkan error
+  const intervalRef = useRef(null);
 
   useEffect(() => {
     const id = generateDeviceId();
@@ -86,6 +85,25 @@ export default function Home() {
 
     return () => unsubscribe();
   }, [deviceId]);
+
+  // *** SISTEM OFFLINE OTOMATIS SAAT TAB DITUTUP ***
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isOnline && deviceId) {
+        // Gunakan sendBeacon untuk request yang andal saat halaman ditutup
+        const data = new FormData();
+        data.append('deviceId', deviceId);
+        navigator.sendBeacon('/api/go-offline', data);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Bersihkan event listener saat komponen unmount
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isOnline, deviceId]);
 
   const handleRegister = (e) => {
     e.preventDefault();
@@ -283,4 +301,4 @@ export default function Home() {
       </footer>
     </div>
   );
-          }
+                  }
