@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue, get, update, remove } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
+import '../styles/global.css'; // Import ini akan dipindahkan ke _app.js, tapi biarkan dulu
 
 export default function Home() {
   const [deviceId, setDeviceId] = useState('');
