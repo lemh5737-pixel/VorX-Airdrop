@@ -10,7 +10,7 @@ export default function Send() {
   const [receiverName, setReceiverName] = useState('');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadResults, setUploadResults] = useState([]); // State untuk menyimpan semua hasil upload
+  const [uploadResults, setUploadResults] = useState([]);
   const [transferStatus, setTransferStatus] = useState('');
   const router = useRouter();
 
@@ -54,17 +54,16 @@ export default function Send() {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setFile(selectedFile);
-      setUploadResults([]); // Reset hasil upload saat file baru dipilih
+      setUploadResults([]);
       setTransferStatus('');
     }
   };
 
-  // FUNGSI UPLOAD YANG SUDAH DIPERBAIKI UNTUK MULTI-UPLOADER
   const handleUpload = async () => {
     if (!file) return;
     
     setUploading(true);
-    setUploadResults([]); // Reset hasil
+    setUploadResults([]);
     
     try {
       const formData = new FormData();
@@ -83,7 +82,6 @@ export default function Send() {
       const data = await response.json();
       setUploadResults(data.results);
 
-      // Cari upload yang pertama kali berhasil untuk dikirim
       const firstSuccess = data.results.find(r => r.status === 'success');
       if (firstSuccess) {
         sendTransferRequest(firstSuccess.url);
@@ -169,29 +167,13 @@ export default function Send() {
             {uploading ? 'Mengunggah...' : (transferStatus === 'accepted' ? 'File Diterima' : 'Kirim File')}
           </button>
 
-          {/* Tampilkan semua hasil upload */}
+          {/* *** TAMPILAN INFORMASI YANG SUDAH DIEDIT *** */}
           {uploadResults.length > 0 && (
-            <div className="upload-results" style={{ marginTop: '20px' }}>
-              <h4>Hasil Upload:</h4>
-              <ul style={{ listStyle: 'none', padding: 0 }}>
-                {uploadResults.map((result, index) => (
-                  <li key={index} style={{ marginBottom: '10px' }}>
-                    {result.status === 'success' ? (
-                      <span>
-                        ✅ <strong>{result.service}:</strong>{' '}
-                        <a href={result.url} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-all' }}>
-                          {result.url}
-                        </a>
-                      </span>
-                    ) : (
-                      <span>❌ <strong>{result.service}:</strong> Gagal</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              {transferStatus === 'accepted' && (
-                 <p style={{color: 'var(--secondary-color)'}}>File yang dikirim menggunakan link dari salah satu layanan di atas.</p>
-              )}
+            <div className="upload-results" style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e8f0fe', borderRadius: '8px', borderLeft: '4px solid var(--primary-color)' }}>
+              <h4 style={{ marginTop: 0 }}>Informasi Pengiriman</h4>
+              <p><strong>Nama File/Media:</strong> {file.name}</p>
+              <p><strong>Penerima:</strong> {receiverName}</p>
+              <p><strong>Status:</strong> {transferStatus === 'accepted' ? '✅ Telah diterima' : '⏳ Menunggu konfirmasi penerima...'}</p>
             </div>
           )}
         </div>
@@ -202,4 +184,4 @@ export default function Send() {
       </footer>
     </div>
   );
-}
+    }
