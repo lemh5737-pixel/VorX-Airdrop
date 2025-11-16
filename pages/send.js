@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { database, ref, set, onValue } from '../lib/firebase';
 import { generateDeviceId } from '../utils/generateId';
+import '../styles/global.css'; // Pastikan import ini ada di _app.js, bukan di sini
 
 export default function Send() {
   const [deviceId, setDeviceId] = useState('');
@@ -9,7 +10,7 @@ export default function Send() {
   const [receiverName, setReceiverName] = useState('');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  // State uploadProgress dihapus karena tidak lagi digunakan dengan fetch
   const [fileUrl, setFileUrl] = useState('');
   const [transferStatus, setTransferStatus] = useState('');
   const router = useRouter();
@@ -18,11 +19,9 @@ export default function Send() {
     const id = generateDeviceId();
     setDeviceId(id);
     
-    // Dapatkan receiver ID dari query
     if (router.query.receiverId) {
       setReceiverId(router.query.receiverId);
       
-      // Dapatkan nama penerima
       const receiverRef = ref(database, `users/${router.query.receiverId}`);
       onValue(receiverRef, (snapshot) => {
         if (snapshot.exists()) {
@@ -35,7 +34,6 @@ export default function Send() {
   useEffect(() => {
     if (!receiverId) return;
     
-    // Dengarkan status transfer
     const transferRef = ref(database, `transfers/${receiverId}`);
     onValue(transferRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -62,61 +60,46 @@ export default function Send() {
     }
   };
 
+  // FUNGSI UPLOAD YANG SUDAH DIPERBAIKI
   const handleUpload = async () => {
     if (!file) return;
     
     setUploading(true);
-    setUploadProgress(0);
     
     try {
-      // Upload ke Catbox
       const formData = new FormData();
       formData.append('fileToUpload', file);
       formData.append('reqtype', 'fileupload');
-      
-      const xhr = new XMLHttpRequest();
-      
-      // Track progress
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = Math.round((e.loaded / e.total) * 100);
-          setUploadProgress(percentComplete);
-        }
+
+      // Kirim file ke API route kita sendiri
+      const response = await fetch('/api/upload-catbox', {
+        method: 'POST',
+        body: formData,
       });
-      
-      // Handle completion
-      xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
-          const response = JSON.parse(xhr.responseText);
-          if (response.success) {
-            setFileUrl(response.fileurl);
-            sendTransferRequest(response.fileurl);
-          } else {
-            showNotification('Gagal mengunggah file', 'error');
-          }
-        } else {
-          showNotification('Gagal mengunggah file', 'error');
-        }
-        setUploading(false);
-      });
-      
-      // Handle errors
-      xhr.addEventListener('error', () => {
-        showNotification('Terjadi kesalahan saat mengunggah', 'error');
-        setUploading(false);
-      });
-      
-      xhr.open('POST', 'https://catbox.moe/user/api.php');
-      xhr.send(formData);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Gagal mengunggah file');
+      }
+
+      const result = await response.json();
+
+      if (result.success || result.fileurl) {
+        const catboxURL = result.fileurl;
+        setFileUrl(catboxURL);
+        sendTransferRequest(catboxURL);
+      } else {
+        showNotification('Gagal mengunggah file', 'error');
+      }
     } catch (error) {
       console.error('Error uploading file:', error);
-      showNotification('Terjadi kesalahan saat mengunggah', 'error');
+      showNotification(error.message || 'Terjadi kesalahan saat mengunggah', 'error');
+    } finally {
       setUploading(false);
     }
   };
 
   const sendTransferRequest = (url) => {
-    // Kirim permintaan transfer ke Firebase
     set(ref(database, `transfers/${receiverId}`), {
       from: deviceId,
       url: url,
@@ -159,7 +142,7 @@ export default function Send() {
 
       <main>
         <div className="card">
-          <h2 className="card-title">Kirim File ke {receiverName}</h2>
+          <h2 className="card-title">Kirim File ke {receiverName || '...'}</h2>
           
           <div className="form-group">
             <label htmlFor="file">Pilih File</label>
@@ -167,6 +150,7 @@ export default function Send() {
               type="file"
               id="file"
               onChange={handleFileChange}
+              disabled={uploading}
             />
           </div>
           
@@ -177,20 +161,12 @@ export default function Send() {
             </div>
           )}
           
-          {uploading && (
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
-              <p>{uploadProgress}%</p>
-            </div>
-          )}
+          {/* Progress Bar dihapus */}
           
           {fileUrl && !uploading && (
             <div className="transfer-status">
               <p>File berhasil diunggah!</p>
-              <p>Status transfer: {transferStatus || 'Menunggu respons...'}</p>
+              <p>Status transfer: {transferStatus === 'accepted' ? 'Diterima' : 'Menunggu respons...'}</p>
             </div>
           )}
           
@@ -199,12 +175,7 @@ export default function Send() {
             onClick={handleUpload}
             disabled={!file || uploading || transferStatus === 'accepted'}
           >
-            {uploading ? (
-              <>
-                <span className="loading"></span>
-                Mengunggah...
-              </>
-            ) : transferStatus === 'accepted' ? 'File Diterima' : 'Kirim File'}
+            {uploading ? 'Mengunggah...' : (transferStatus === 'accepted' ? 'File Diterima' : 'Kirim File')}
           </button>
         </div>
       </main>
@@ -214,4 +185,4 @@ export default function Send() {
       </footer>
     </div>
   );
-    }
+}
